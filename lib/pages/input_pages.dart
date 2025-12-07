@@ -11,11 +11,14 @@ class InputPage extends StatefulWidget {
 
 class _InputPageState extends State<InputPage> {
   final _formKey = GlobalKey<FormState>();
+
+  // Controller untuk hitung BMI otomatis
+  final TextEditingController weightController = TextEditingController();
+  final TextEditingController heightController = TextEditingController();
   
   // Controller untuk mengambil input user
   final TextEditingController glucController = TextEditingController();
   final TextEditingController bpController = TextEditingController();
-  final TextEditingController bmiController = TextEditingController();
   final TextEditingController ageController = TextEditingController();
 
   final KNNService _knnService = KNNService();
@@ -28,6 +31,45 @@ class _InputPageState extends State<InputPage> {
     super.initState();
     // [BARU] Panggil fungsi loading saat halaman pertama kali dibuka
     _loadDataset();
+
+    // Controller BMI Hitung Otomatis
+    weightController.addListener(_updateBMI);
+    heightController.addListener(_updateBMI);
+  }
+
+  // Bersihkan listener ketika halaman input di tutup
+  @override
+  void dispose() {
+    weightController.dispose();
+    heightController.dispose();
+    glucController.dispose();
+    bpController.dispose();
+    ageController.dispose();
+    super.dispose();
+  }
+
+  // Hitung BMI Otomatis
+
+  double bmiValue = 0.0;
+
+  void _updateBMI() {
+    setState(() {
+      bmiValue = _calculateBMI();
+    });
+  }
+
+  double _calculateBMI() {
+    if (weightController.text.isEmpty || heightController.text.isEmpty) {
+      return 0.0;
+    }
+
+    double weight = double.tryParse(weightController.text) ?? 0;
+    double heightCm = double.tryParse(heightController.text) ?? 0;
+
+    if (weight <= 0 || heightCm <= 0) return 0.0;
+
+    double heightM = heightCm / 100;
+    return weight / (heightM * heightM);
   }
 
   // [BARU] Fungsi asinkron untuk memuat data dari CSV
@@ -44,7 +86,6 @@ class _InputPageState extends State<InputPage> {
   }
 
   void _analyze() {
-    // [BARU] Cek dulu apakah data sudah siap
     if (!_isDataLoaded) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -56,16 +97,29 @@ class _InputPageState extends State<InputPage> {
     }
 
     if (_formKey.currentState!.validate()) {
-      // Konversi input teks ke double
-      double gluc = double.parse(glucController.text);
-      double bp = double.parse(bpController.text);
-      double bmi = double.parse(bmiController.text);
-      double age = double.parse(ageController.text);
 
-      // JALANKAN ALGORITMA K-NN (K=5)
+      // parsing aman
+      double? gluc = double.tryParse(glucController.text);
+      double? bp = double.tryParse(bpController.text);
+      double? age = double.tryParse(ageController.text);
+      double bmi = bmiValue;
+
+      if (gluc == null) {
+        _error("Input glukosa tidak valid"); return;
+      }
+      if (bp == null) {
+        _error("Input tekanan darah tidak valid"); return;
+      }
+      if (age == null) {
+        _error("Input usia tidak valid"); return;
+      }
+      if (bmi <= 0) {
+        _error("BMI tidak valid. Masukkan berat dan tinggi yang benar."); return;
+      }
+
+      // Jalankan KNN
       var result = _knnService.classify(gluc, bp, bmi, age, 5);
 
-      // Pindah ke halaman hasil membawa data
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -73,6 +127,12 @@ class _InputPageState extends State<InputPage> {
         ),
       );
     }
+  }
+
+  void _error(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: Colors.red),
+    );
   }
 
   @override
@@ -95,7 +155,22 @@ class _InputPageState extends State<InputPage> {
               
               _buildInput("Glukosa (mg/dL)", glucController),
               _buildInput("Tekanan Darah (mm Hg)", bpController),
-              _buildInput("BMI (Berat/Tinggi²)", bmiController),
+              _buildInput("Berat Badan (kg)", weightController),
+              _buildInput("Tinggi Badan (cm)", heightController),
+
+              Container(
+                margin: const EdgeInsets.only(top: 10, bottom: 20),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  "BMI Anda: ${bmiValue.toStringAsFixed(2)}",
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
+
               _buildInput("Usia (Tahun)", ageController),
 
               const SizedBox(height: 30),
